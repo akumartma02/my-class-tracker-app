@@ -225,7 +225,7 @@
             </form>
         </div>
     </div>
-    
+
     <!-- Admin Panel Modal -->
     <div id="adminPanelModal" class="modal">
         <div class="modal-content max-w-lg">
@@ -280,7 +280,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Custom Message Modal -->
     <div id="messageModal" class="modal">
         <div class="modal-content">
@@ -291,7 +291,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -303,19 +303,18 @@
         setLogLevel('debug');
 
         // Global variables for the app.
-// The __app_id and __initial_auth_token are provided by the hosting environment.
-const appId = "my-class-tracker-app-80132";
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
-const firebaseConfig = {
-    apiKey: "AIzaSyCoOLmFOuwOr_kfr_g11J19IdLySo30Ixk",
-    authDomain: "my-class-tracker-app-80132.firebaseapp.com",
-    projectId: "my-class-tracker-app-80132",
-    storageBucket: "my-class-tracker-app-80132.firebasestorage.app",
-    messagingSenderId: "955063855407",
-    appId: "1:955063855407:web:04b0ca8107dd95632c99da",
-    measurementId: "G-N3GPTXNJ7K"
-};
-
+        // The __app_id and __initial_auth_token are provided by the hosting environment.
+        const appId = "my-class-tracker-app-80132";
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+        const firebaseConfig = {
+            apiKey: "AIzaSyCoOLmFOuwOr_kfr_g11J19IdLySo30Ixk",
+            authDomain: "my-class-tracker-app-80132.firebaseapp.com",
+            projectId: "my-class-tracker-app-80132",
+            storageBucket: "my-class-tracker-app-80132.firebasestorage.app",
+            messagingSenderId: "955063855407",
+            appId: "1:955063855407:web:04b0ca8107dd95632c99da",
+            measurementId: "G-N3GPTXNJ7K"
+        };
         
         const ADMIN_PASSWORD = 'BATCH2024-25@bamsak';
         const ADMIN = 'Abhishek Kumar';
