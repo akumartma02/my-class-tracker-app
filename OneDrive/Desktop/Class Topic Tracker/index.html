@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Class Topic Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, getDocs, query, where, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // IMPORTANT: Replace this with your Firebase project's configuration object
+        const firebaseConfig = {
+  apiKey: "AIzaSyCoOLmFOuwOr_kfr_g11J19IdLySo30Ixk",
+  authDomain: "my-class-tracker-app-80132.firebaseapp.com",
+  projectId: "my-class-tracker-app-80132",
+  storageBucket: "my-class-tracker-app-80132.firebasestorage.app",
+  messagingSenderId: "955063855407",
+  appId: "1:955063855407:web:04b0ca8107dd95632c99da",
+  measurementId: "G-N3GPTXNJ7K"
+};
+        const appId = firebaseConfig.projectId;
+        const authToken = null; // Not needed for local file testing
+        
+        // Data for dropdowns and admin roles
+        const ADMIN = 'Abhishek Kumar';
+        const DEFAULT_SUB_ADMIN_PASSWORD = 'BATCH2024-25@bams';
+        const ADMIN_EMAIL = 'abhishek020602@gmail.com';
+        
+        // UI elements for forms and display
+        let subjectSelect, teacherSelect, batchSelect, addTopicForm, addStatusMessage, dateInput, viewStartDateInput, viewEndDateInput, filterBatchSelect, filterSubjectSelect, filterTeacherSelect, topicList, userIdDisplay;
+
+        // UI elements for admin
+        let adminIcon, passwordModal, adminPanelModal, passwordForm, passwordInput, adminNameInput, passwordStatus, addTopicSection, adminListElement, adminControls, addSubAdminForm, newSubAdminNameInput, subAdminStatus, batchListElement, addBatchForm, newBatchNameInput, subjectListElement, addSubjectForm, newSubjectNameInput, teacherListElement, addTeacherForm, newTeacherNameInput, teacherSubjectSelect, logoutBtn, loggedInAsText, loggedInAsModal, messageModal, messageText, messageCloseBtn;
+
+        let db, auth, userId;
+        let allTopics = [];
+        let allSubAdmins = [];
+        let subAdminPasswords = {};
+        let allBatches = [];
+        let allSubjects = [];
+        let allTeachers = [];
+        let isLoggedIn = false;
+        let userRole = 'user'; // 'user', 'sub-admin', 'admin'
+        
+        // Initial hardcoded data to be added on first run
+        const initialBatches = ['BATCH A', 'BATCH B', 'BOTH (A & B)'];
+        const initialSubjects = [
+            'RACHANA SHARIR', 'KRIYA SHARIR', 'SANSKRIT', 'SAMHITA ADHAYAYAN', 'PADARTH VIGYAN'
+        ];
+        const initialTeachers = {
+            'RACHANA SHARIR': ['Dr Pooja', 'Dr Amrish Chanana', 'Dr Mukesh Sharma', 'Dr Sudhir Kumar'],
+            'KRIYA SHARIR': ['Dr Rakesh Roushan', 'Dr Alok Asthana', 'Dr Smita Arora', 'Dr Shalini Prakash'],
+            'SANSKRIT': ['Dr Arun Kumar'],
+            'SAMHITA ADHAYAYAN': ['Dr Santosh Nair'],
+            'PADARTH VIGYAN': ['Dr Vaishali Mali']
+        };
+        const initialSubAdmins = ['Sachin', 'Swati', 'Dishant', 'Avni', 'Prakriti'];
+        const ADMIN_PASSWORD_PLACEHOLDER = 'BATCH2024-25@bamsak';
+
+        // Custom modal to replace alerts
+        function showMessage(message) {
+            if (messageModal) {
+                messageText.textContent = message;
+                messageModal.style.display = 'block';
+            }
+        }
+
+        // Initialize UI elements after the DOM is loaded
+        function initializeUIElements() {
+            subjectSelect = document.getElementById('subjectSelect');
+            teacherSelect = document.getElementById('teacherSelect');
+            batchSelect = document.getElementById('batchSelect');
+            addTopicForm = document.getElementById('addTopicForm');
+            addStatusMessage = document.getElementById('addStatusMessage');
+            dateInput = document.getElementById('dateInput');
+            viewStartDateInput = document.getElementById('viewStartDateInput');
+            viewEndDateInput = document.getElementById('viewEndDateInput');
+            filterBatchSelect = document.getElementById('filterBatchSelect');
+            filterSubjectSelect = document.getElementById('filterSubjectSelect');
+            filterTeacherSelect = document.getElementById('filterTeacherSelect');
+            topicList = document.getElementById('topicList');
+            userIdDisplay = document.getElementById('userIdDisplay');
+            adminIcon = document.getElementById('adminIcon');
+            passwordModal = document.getElementById('passwordModal');
+            adminPanelModal = document.getElementById('adminPanelModal');
+            passwordForm = document.getElementById('passwordForm');
+            passwordInput = document.getElementById('passwordInput');
+            adminNameInput = document.getElementById('adminName');
+            passwordStatus = document.getElementById('passwordStatus');
+            addTopicSection = document.getElementById('addTopicSection');
+            adminListElement = document.getElementById('adminList');
+            adminControls = document.getElementById('adminControls');
+            addSubAdminForm = document.getElementById('addSubAdminForm');
+            newSubAdminNameInput = document.getElementById('newSubAdminName');
+            subAdminStatus = document.getElementById('subAdminStatus');
+            batchListElement = document.getElementById('batchList');
+            addBatchForm = document.getElementById('addBatchForm');
+            newBatchNameInput = document.getElementById('newBatchName');
+            subjectListElement = document.getElementById('subjectList');
+            addSubjectForm = document.getElementById('addSubjectForm');
+            newSubjectNameInput = document.getElementById('newSubjectName');
+            teacherListElement = document.getElementById('teacherList');
+            addTeacherForm = document.getElementById('addTeacherForm');
+            newTeacherNameInput = document.getElementById('newTeacherName');
+            teacherSubjectSelect = document.getElementById('teacherSubjectSelect');
+            logoutBtn = document.getElementById('logoutBtn');
+            loggedInAsText = document.getElementById('loggedInAs');
+            loggedInAsModal = document.getElementById('loggedInAsModal');
+            messageModal = document.getElementById('messageModal');
+            messageText = document.getElementById('messageText');
+            messageCloseBtn = document.getElementById('messageCloseBtn');
+        }
+        
+        // Initialize Firebase and Auth
+        async function initializeFirebase() {
+            initializeUIElements();
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Use the provided auth token for sign-in
+                if (authToken) {
+                    await signInWithCustomToken(auth, authToken).catch(error => {
+                        console.error("Custom token sign-in failed:", error);
+                    });
+                } else {
+                    await signInAnonymously(auth).catch(error => {
+                        console.error("Anonymous sign-in failed:", error);
+                    });
+                }
+                
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                userIdDisplay.textContent = `User ID: ${userId}`;
+                console.log('Firebase initialized and user signed in:', userId);
+                
+                await addInitialDataIfEmpty();
+                setupRealtimeListeners();
+                addEventListeners();
+            } catch (error) {
+                console.error("Firebase initialization or authentication failed:", error);
+                if (addStatusMessage) {
+                    addStatusMessage.textContent = 'Error initializing Firebase. Check the console.';
+                    addStatusMessage.classList.add('text-red-500');
+                }
+            }
+        }
+        
+        async function addInitialDataIfEmpty() {
+            try {
+                const batchesCollection = collection(db, `artifacts/${appId}/public/data/batches`);
+                const batchesSnapshot = await getDocs(batchesCollection);
+                
+                if (batchesSnapshot.empty) {
+                    console.log("Adding initial data to the database...");
+                    // Add batches
+                    for (const batch of initialBatches) {
+                        await addDoc(batchesCollection, { name: batch });
+                    }
+                    // Add subjects and teachers
+                    const subjectsCollection = collection(db, `artifacts/${appId}/public/data/subjects`);
+                    const teachersCollection = collection(db, `artifacts/${appId}/public/data/teachers`);
+                    
+                    for (const subject of initialSubjects) {
+                        await addDoc(subjectsCollection, { name: subject });
+                        if (initialTeachers[subject]) {
+                            for (const teacher of initialTeachers[subject]) {
+                                await addDoc(teachersCollection, { name: teacher, subject: subject });
+                            }
+                        }
+                    }
+                    // Add admin and sub-admins
+                    const adminRolesCollection = collection(db, `artifacts/${appId}/public/data/admin_roles`);
+                    const subAdminPasswordsCollection = collection(db, `artifacts/${appId}/public/data/sub_admin_passwords`);
+                    const adminPasswordsCollection = collection(db, `artifacts/${appId}/public/data/admin_passwords`);
+                    
+                    await setDoc(doc(adminRolesCollection, ADMIN), { name: ADMIN, role: 'admin' });
+                    await setDoc(doc(adminPasswordsCollection, ADMIN), { password: ADMIN_PASSWORD_PLACEHOLDER });
+
+                    for (const subAdminName of initialSubAdmins) {
+                        await setDoc(doc(adminRolesCollection, subAdminName), {
+                            name: subAdminName,
+                            role: 'sub-admin'
+                        });
+                        await setDoc(doc(subAdminPasswordsCollection, subAdminName), {
+                            password: DEFAULT_SUB_ADMIN_PASSWORD
+                        });
+                    }
+                    console.log("Initial data added successfully.");
+                }
+            } catch (e) {
+                console.error("Error adding initial data: ", e);
+            }
+        }
+        
+        async function removeSubAdmin(name) {
+            try {
+                await deleteDoc(doc(db, `artifacts/${appId}/public/data/admin_roles`, name));
+                await deleteDoc(doc(db, `artifacts/${appId}/public/data/sub_admin_passwords`, name));
+                showMessage("Sub-admin successfully removed!");
+            } catch (e) {
+                console.error("Error removing sub-admin: ", e);
+                showMessage("Error removing sub-admin.");
+            }
+        }
+        window.removeSubAdmin = removeSubAdmin;
+
+        async function updateSubAdminPassword(name, newPassword) {
+            try {
+                const passwordRef = doc(db, `artifacts/${appId}/public/data/sub_admin_passwords`, name);
+                await setDoc(passwordRef, { password: newPassword });
+                showMessage(`Password for ${name} successfully updated!`);
+            } catch (e) {
+                console.error(`Error updating password for ${name}: `, e);
+                showMessage(`Error updating password for ${name}.`);
+            }
+        }
+        window.updateSubAdminPassword = updateSubAdminPassword;
+
+        async function removeData(collectionName, id) {
+            try {
+                await deleteDoc(doc(db, `artifacts/${appId}/public/data/${collectionName}`, id));
+                showMessage(`${collectionName} document successfully removed!`);
+            } catch (e) {
+                console.error(`Error removing ${collectionName} document: `, e);
+                showMessage(`Error removing ${collectionName} document.`);
+            }
+        }
+        window.removeData = removeData;
+
+        async function deleteTopic(topicId) {
+            try {
+                const topicRef = doc(db, `artifacts/${appId}/public/data/class_topics`, topicId);
+                await deleteDoc(topicRef);
+                showMessage("Document successfully deleted!");
+            } catch (e) {
+                console.error("Error removing document: ", e);
+                showMessage("Error deleting topic.");
+            }
+        }
+        window.deleteTopic = deleteTopic;
+
+        function toggleAdminUI() {
+            if (isLoggedIn && (userRole === 'admin' || userRole === 'sub-admin')) {
+                addTopicSection.classList.remove('hidden');
+                document.getElementById('viewTopicsSection').classList.remove('md:col-span-2');
+                document.getElementById('viewTopicsSection').classList.add('md:col-span-1');
+                loggedInAsText.textContent = `Logged in as: ${adminNameInput.value}`;
+            } else {
+                addTopicSection.classList.add('hidden');
+                document.getElementById('viewTopicsSection').classList.remove('md:col-span-1');
+                document.getElementById('viewTopicsSection').classList.add('md:col-span-2');
+                loggedInAsText.textContent = '';
+            }
+            filterAndRenderTopics(); // Re-render to show/hide delete buttons
+        }
+
+        // Add event listeners
+        function addEventListeners() {
+            subjectSelect.addEventListener('change', updateAddTeacherDropdown);
+            filterSubjectSelect.addEventListener('change', updateFilterTeacherDropdown);
+            teacherSubjectSelect.addEventListener('change', updateAddTeacherDropdown); // for the admin panel
+            viewStartDateInput.addEventListener('change', filterAndRenderTopics);
+            viewEndDateInput.addEventListener('change', filterAndRenderTopics);
+            filterBatchSelect.addEventListener('change', filterAndRenderTopics);
+            filterSubjectSelect.addEventListener('change', filterAndRenderTopics);
+            filterTeacherSelect.addEventListener('change', filterAndRenderTopics);
+            addTopicForm.addEventListener('submit', handleAddTopic);
+            
+            // Toggle password visibility
+            document.getElementById('togglePassword').addEventListener('click', () => {
+                const passwordInput = document.getElementById('passwordInput');
+                const eyeOpen = document.getElementById('eye-open');
+                const eyeClosed = document.getElementById('eye-closed');
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                if (type === 'password') {
+                    eyeOpen.style.display = 'block';
+                    eyeClosed.style.display = 'none';
+                } else {
+                    eyeOpen.style.display = 'none';
+                    eyeClosed.style.display = 'block';
+                }
+            });
+            // Admin icon click
+            adminIcon.addEventListener('click', () => {
+                if (isLoggedIn) {
+                    adminPanelModal.style.display = 'block';
+                    loggedInAsModal.textContent = `Logged in as: ${adminNameInput.value}`;
+                    renderAdminList();
+                    renderDynamicDataLists();
+                } else {
+                    passwordModal.style.display = 'block';
+                    passwordStatus.textContent = '';
+                    adminNameInput.value = '';
+                    passwordInput.value = '';
+                }
+            });
+
+            // Close modal buttons
+            document.querySelectorAll('.close-btn').forEach(btn => {
+                btn.onclick = () => {
+                    passwordModal.style.display = 'none';
+                    adminPanelModal.style.display = 'none';
+                    messageModal.style.display = 'none';
+                };
+            });
+            if (messageCloseBtn) {
+                 messageCloseBtn.onclick = () => { messageModal.style.display = 'none'; };
+            }
+
+            window.onclick = (event) => {
+                if (event.target == passwordModal) {
+                    passwordModal.style.display = 'none';
+                }
+                if (event.target == adminPanelModal) {
+                    adminPanelModal.style.display = 'none';
+                }
+                if (event.target == messageModal) {
+                    messageModal.style.display = 'none';
+                }
+            };
+            
+            // Handle password form submission
+            passwordForm.addEventListener('submit', handlePasswordSubmit);
+            addSubAdminForm.addEventListener('submit', handleAddSubAdmin);
+            addBatchForm.addEventListener('submit', handleAddBatch);
+            addSubjectForm.addEventListener('submit', handleAddSubject);
+            addTeacherForm.addEventListener('submit', handleAddTeacher);
+            logoutBtn.addEventListener('click', handleLogout);
+        }
+
+        async function handlePasswordSubmit(e) {
+            e.preventDefault();
+            const password = passwordInput.value;
+            const name = adminNameInput.value.trim();
+        
+            if (name === ADMIN) {
+                const adminPasswordRef = doc(db, `artifacts/${appId}/public/data/admin_passwords`, ADMIN);
+                const adminPasswordDoc = await getDoc(adminPasswordRef);
+                const storedPassword = adminPasswordDoc.exists() ? adminPasswordDoc.data().password : null;
+
+                if (password === storedPassword) {
+                    isLoggedIn = true;
+                    userRole = 'admin';
+                    loggedInAsText.textContent = `Logged in as: ${ADMIN}`;
+                    loggedInAsModal.textContent = `Logged in as: ${ADMIN}`;
+                    showAdminPanel();
+                } else {
+                    passwordStatus.textContent = 'Incorrect password. Please try again.';
+                }
+            } else {
+                const passwordRef = doc(db, `artifacts/${appId}/public/data/sub_admin_passwords`, name);
+                const passwordDoc = await getDoc(passwordRef);
+                const subAdminPassword = passwordDoc.exists() ? passwordDoc.data().password : null;
+
+                if (allSubAdmins.includes(name) && password === subAdminPassword) {
+                    isLoggedIn = true;
+                    userRole = 'sub-admin';
+                    loggedInAsText.textContent = `Logged in as: ${name}`;
+                    loggedInAsModal.textContent = `Logged in as: ${name}`;
+                    showAdminPanel();
+                } else {
+                    passwordStatus.textContent = 'Invalid name or password. Please try again.';
+                }
+            }
+        
+            toggleAdminUI();
+        }
+
+        function handleLogout() {
+            isLoggedIn = false;
+            userRole = 'user';
+            adminPanelModal.style.display = 'none';
+            toggleAdminUI();
+            showMessage('Logged out successfully.');
+        }
+
+        function showAdminPanel() {
+            passwordModal.style.display = 'none';
+            adminPanelModal.style.display = 'block';
+            renderAdminList();
+            renderDynamicDataLists();
+            if (userRole === 'admin') {
+                adminControls.classList.remove('hidden');
+            } else {
+                adminControls.classList.add('hidden');
+            }
+        }
+
+        function renderAdminList() {
+            if (!adminListElement) return;
+            adminListElement.innerHTML = '';
+            
+            // Display Admin
+            const adminItem = document.createElement('li');
+            adminItem.innerHTML = `<span class="font-bold">Admin:</span> ${ADMIN}`;
+            adminListElement.appendChild(adminItem);
+
+            // Display Sub-admins with delete and password update options for admin
+            allSubAdmins.forEach(subAdmin => {
+                const subAdminItem = document.createElement('li');
+                subAdminItem.classList.add('flex', 'flex-col', 'sm:flex-row', 'justify-between', 'items-start', 'sm:items-center', 'p-2', 'bg-white', 'rounded-lg', 'shadow-sm', 'my-2');
+                
+                let passwordControlHtml = '';
+                if (userRole === 'admin') {
+                    passwordControlHtml = `
+                        <div class="mt-2 sm:mt-0 flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                            <input type="text" class="form-input flex-grow" placeholder="New Password" id="pass-${subAdmin}">
+                            <button class="btn-primary flex-shrink-0" onclick="updateSubAdminPassword('${subAdmin}', document.getElementById('pass-${subAdmin}').value)">Update Password</button>
+                        </div>
+                    `;
+                }
+
+                subAdminItem.innerHTML = `
+                    <div class="w-full sm:w-auto flex-grow flex items-center justify-between">
+                        <span><span class="font-bold">Sub-Admin:</span> ${subAdmin}</span>
+                        ${userRole === 'admin' ? `<button class="btn-delete sm:ml-4" data-name="${subAdmin}" onclick="removeSubAdmin('${subAdmin}')">Remove</button>` : ''}
+                    </div>
+                    ${passwordControlHtml}
+                `;
+                adminListElement.appendChild(subAdminItem);
+            });
+        }
+
+        function renderDynamicDataLists() {
+            // Render Batches
+            if (batchListElement) {
+                batchListElement.innerHTML = '';
+                allBatches.forEach(batch => {
+                    const li = document.createElement('li');
+                    li.classList.add('flex', 'justify-between', 'items-center');
+                    li.innerHTML = `
+                        <span>${batch.name}</span>
+                        ${userRole === 'admin' ? `<button class="btn-delete" data-id="${batch.id}" onclick="removeData('batches', '${batch.id}')">Remove</button>` : ''}
+                    `;
+                    batchListElement.appendChild(li);
+                });
+            }
+
+            // Render Subjects
+            if (subjectListElement) {
+                subjectListElement.innerHTML = '';
+                allSubjects.forEach(subject => {
+                    const li = document.createElement('li');
+                    li.classList.add('flex', 'justify-between', 'items-center');
+                    li.innerHTML = `
+                        <span>${subject.name}</span>
+                        ${userRole === 'admin' ? `<button class="btn-delete" data-id="${subject.id}" onclick="removeData('subjects', '${subject.id}')">Remove</button>` : ''}
+                    `;
+                    subjectListElement.appendChild(li);
+                });
+            }
+
+            // Render Teachers
+            if (teacherListElement) {
+                teacherListElement.innerHTML = '';
+                allTeachers.forEach(teacher => {
+                    const li = document.createElement('li');
+                    li.classList.add('flex', 'justify-between', 'items-center');
+                    li.innerHTML = `
+                        <span>${teacher.name} (${teacher.subject})</span>
+                        ${userRole === 'admin' ? `<button class="btn-delete" data-id="${teacher.id}" onclick="removeData('teachers', '${teacher.id}')">Remove</button>` : ''}
+                    `;
+                    teacherListElement.appendChild(li);
+                });
+            }
+
+            // Populate teacherSubjectSelect in admin panel
+            if (teacherSubjectSelect) {
+                teacherSubjectSelect.innerHTML = '';
+                allSubjects.forEach(subject => {
+                    const option = document.createElement('option');
+                    option.value = subject.name;
+                    option.textContent = subject.name;
+                    teacherSubjectSelect.appendChild(option);
+                });
+            }
+        }
+
+        async function handleAddSubAdmin(e) {
+            e.preventDefault();
+            const name = newSubAdminNameInput.value.trim();
+            if (!name) return;
+
+            try {
+                const q = query(collection(db, `artifacts/${appId}/public/data/admin_roles`), where("name", "==", name));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) {
+                    if (subAdminStatus) {
+                        subAdminStatus.textContent = `${name} is already a sub-admin.`;
+                        subAdminStatus.classList.add('text-red-500');
+                    }
+                    return;
+                }
+
+                await setDoc(doc(db, `artifacts/${appId}/public/data/admin_roles`, name), {
+                    name: name,
+                    role: 'sub-admin'
+                });
+                await setDoc(doc(db, `artifacts/${appId}/public/data/sub_admin_passwords`, name), {
+                    password: DEFAULT_SUB_ADMIN_PASSWORD
+                });
+
+                if (subAdminStatus) {
+                    subAdminStatus.textContent = `${name} added as sub-admin.`;
+                    subAdminStatus.classList.remove('text-red-500');
+                    subAdminStatus.classList.add('text-green-500');
+                }
+                newSubAdminNameInput.value = '';
+            } catch (e) {
+                console.error("Error adding sub-admin:", e);
+                if (subAdminStatus) {
+                    subAdminStatus.textContent = 'Error adding sub-admin. Check console.';
+                    subAdminStatus.classList.remove('text-green-500');
+                    subAdminStatus.classList.add('text-red-500');
+                }
+            }
+        }
+
+        async function handleAddBatch(e) {
+            e.preventDefault();
+            const name = newBatchNameInput.value.trim();
+            if (!name) return;
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/batches`), { name: name });
+                newBatchNameInput.value = '';
+            } catch (e) { console.error("Error adding batch:", e); }
+        }
+
+        async function handleAddSubject(e) {
+            e.preventDefault();
+            const name = newSubjectNameInput.value.trim();
+            if (!name) return;
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/subjects`), { name: name });
+                newSubjectNameInput.value = '';
+            } catch (e) { console.error("Error adding subject:", e); }
+        }
+
+        async function handleAddTeacher(e) {
+            e.preventDefault();
+            const name = newTeacherNameInput.value.trim();
+            const subject = teacherSubjectSelect.value;
+            if (!name || !subject) return;
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/teachers`), { name: name, subject: subject });
+                newTeacherNameInput.value = '';
+            } catch (e) { console.error("Error adding teacher:", e); }
+        }
+
+        function updateDropdowns() {
+            if (batchSelect) {
+                batchSelect.innerHTML = '';
+                allBatches.forEach(batch => {
+                    const option = document.createElement('option');
+                    option.value = batch.name;
+                    option.textContent = batch.name;
+                    batchSelect.appendChild(option);
+                });
+            }
+            if (subjectSelect) {
+                subjectSelect.innerHTML = '';
+                allSubjects.forEach(subject => {
+                    const option = document.createElement('option');
+                    option.value = subject.name;
+                    option.textContent = subject.name;
+                    subjectSelect.appendChild(option);
+                });
+            }
+            updateAddTeacherDropdown();
+
+            if (filterBatchSelect) {
+                filterBatchSelect.innerHTML = '<option value="">All Batches</option>';
+                allBatches.forEach(batch => {
+                    const option = document.createElement('option');
+                    option.value = batch.name;
+                    option.textContent = batch.name;
+                    filterBatchSelect.appendChild(option);
+                });
+            }
+            if (filterSubjectSelect) {
+                filterSubjectSelect.innerHTML = '<option value="">All Subjects</option>';
+                allSubjects.forEach(subject => {
+                    const option = document.createElement('option');
+                    option.value = subject.name;
+                    option.textContent = subject.name;
+                    filterSubjectSelect.appendChild(option);
+                });
+            }
+            updateFilterTeacherDropdown();
+        }
+
+        function updateAddTeacherDropdown() {
+            if (!teacherSelect) return;
+            teacherSelect.innerHTML = '';
+            const selectedSubject = subjectSelect.value;
+            const teachers = allTeachers.filter(t => t.subject === selectedSubject) || [];
+            teachers.forEach(teacher => {
+                const option = document.createElement('option');
+                option.value = teacher.name;
+                option.textContent = teacher.name;
+                teacherSelect.appendChild(option);
+            });
+        }
+        
+        function updateFilterTeacherDropdown() {
+            if (!filterTeacherSelect) return;
+            filterTeacherSelect.innerHTML = '<option value="">All Teachers</option>';
+            const selectedSubject = filterSubjectSelect.value;
+            const teachers = allTeachers.filter(t => t.subject === selectedSubject) || [];
+            teachers.forEach(teacher => {
+                const option = document.createElement('option');
+                option.value = teacher.name;
+                option.textContent = teacher.name;
+                filterTeacherSelect.appendChild(option);
+            });
+        }
+
+        async function handleAddTopic(e) {
+            e.preventDefault();
+            const newTopic = {
+                date: dateInput.value,
+                batch: batchSelect.value,
+                subject: subjectSelect.value,
+                teacher: teacherSelect.value,
+                topic: document.getElementById('topicTextarea').value,
+                timestamp: new Date()
+            };
+
+            try {
+                const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/class_topics`), newTopic);
+                console.log("Document written with ID:", docRef.id);
+                addStatusMessage.textContent = 'Topic added successfully!';
+                addStatusMessage.classList.remove('text-red-500');
+                addStatusMessage.classList.add('text-green-500');
+                addTopicForm.reset();
+                updateAddTeacherDropdown();
+            } catch (e) {
+                console.error("Error adding document:", e);
+                addStatusMessage.textContent = 'Error adding topic. Check the console.';
+                addStatusMessage.classList.remove('text-green-500');
+                addStatusMessage.classList.add('text-red-500');
+            }
+        }
+
+        function setupRealtimeListeners() {
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/class_topics`), (querySnapshot) => {
+                allTopics = [];
+                querySnapshot.forEach((doc) => {
+                    allTopics.push({ id: doc.id, ...doc.data() });
+                });
+                console.log('All topics fetched:', allTopics);
+                filterAndRenderTopics();
+            }, (error) => {
+                console.error("Error fetching documents:", error);
+                if (topicList) {
+                    topicList.innerHTML = '<p class="text-center text-red-500">Error fetching topics.</p>';
+                }
+            });
+
+            // FIX: Filter the admin_roles snapshot to only include sub-admins.
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/admin_roles`), (querySnapshot) => {
+                allSubAdmins = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.role === 'sub-admin') {
+                        allSubAdmins.push(data.name);
+                    }
+                });
+                console.log('All sub-admins fetched:', allSubAdmins);
+                renderAdminList();
+                toggleAdminUI();
+            }, (error) => {
+                console.error("Error fetching admin roles:", error);
+            });
+            
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/sub_admin_passwords`), (querySnapshot) => {
+                subAdminPasswords = {};
+                querySnapshot.forEach((doc) => {
+                    subAdminPasswords[doc.id] = doc.data().password;
+                });
+            }, (error) => {
+                console.error("Error fetching sub-admin passwords:", error);
+            });
+
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/batches`), (querySnapshot) => {
+                allBatches = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateDropdowns();
+                renderDynamicDataLists();
+            });
+
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/subjects`), (querySnapshot) => {
+                allSubjects = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateDropdowns();
+                renderDynamicDataLists();
+            });
+
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/teachers`), (querySnapshot) => {
+                allTeachers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateDropdowns();
+                renderDynamicDataLists();
+            });
+        }
+
+        function filterAndRenderTopics() {
+            const startDate = viewStartDateInput.value;
+            let endDate = viewEndDateInput.value;
+            const batchFilter = filterBatchSelect.value;
+            const subjectFilter = filterSubjectSelect.value;
+            const teacherFilter = filterTeacherSelect.value;
+            
+            // Check if a start date is selected. If not, display a message and return.
+            if (!startDate) {
+                if(topicList) {
+                   topicList.innerHTML = '<p class="text-center text-gray-500">Please select a Start Date to view topics.</p>';
+                }
+                return;
+            }
+
+            if (startDate && !endDate) {
+                endDate = startDate;
+            }
+
+            let filteredTopics = [...allTopics];
+
+            if (startDate) {
+                filteredTopics = filteredTopics.filter(topic => topic.date >= startDate);
+            }
+            if (endDate) {
+                filteredTopics = filteredTopics.filter(topic => topic.date <= endDate);
+            }
+
+            if (batchFilter) {
+                 filteredTopics = filteredTopics.filter(topic => topic.batch === batchFilter);
+            }
+
+            if (subjectFilter) {
+                 filteredTopics = filteredTopics.filter(topic => topic.subject === subjectFilter);
+            }
+
+            if (teacherFilter) {
+                 filteredTopics = filteredTopics.filter(topic => topic.teacher === teacherFilter);
+            }
+            
+            if (filteredTopics.length === 0) {
+                if(topicList) {
+                    topicList.innerHTML = '<p class="text-center text-gray-500">No topics found for the selected filters.</p>';
+                }
+                return;
+            }
+
+            const topicsBySubject = filteredTopics.reduce((acc, topic) => {
+                if (!acc[topic.subject]) {
+                    acc[topic.subject] = [];
+                }
+                acc[topic.subject].push(topic);
+                return acc;
+            }, {});
+
+            let html = '';
+            for (const subject in topicsBySubject) {
+                html += `
+                    <div class="border-t pt-4">
+                        <h3 class="text-lg font-semibold text-gray-700">${subject}</h3>
+                        <ul class="list-disc list-inside space-y-2 mt-2">
+                `;
+                topicsBySubject[subject].forEach(topic => {
+                    html += `
+                        <li class="bg-white p-3 rounded-lg shadow-sm flex justify-between items-center">
+                            <div>
+                                <span class="font-medium">Batch:</span> ${topic.batch},
+                                <span class="font-medium">Teacher:</span> ${topic.teacher},
+                                <span class="font-medium">Topic:</span> ${topic.topic}
+                            </div>
+                            ${(userRole === 'admin' || userRole === 'sub-admin') ? `<button class="btn-delete" data-id="${topic.id}" onclick="deleteTopic('${topic.id}')">Delete</button>` : ''}
+                        </li>
+                    `;
+                });
+                html += `
+                        </ul>
+                    </div>
+                `;
+            }
+            if (topicList) {
+                topicList.innerHTML = html;
+            }
+        }
+
+        // Start the application after the DOM content is fully loaded
+        document.addEventListener('DOMContentLoaded', initializeFirebase);
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #dbeafe;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            background-color: #fff;
+            transition: border-color 0.2s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
+        .btn-primary {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            background-color: #6366f1;
+            color: #fff;
+            font-weight: 600;
+            transition: background-color 0.2s, transform 0.2s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            transform: translateY(-2px);
+        }
+        .btn-delete {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: 0.375rem;
+            background-color: #ef4444;
+            color: #fff;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        .btn-delete:hover {
+            background-color: #dc2626;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 400px;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close-btn:hover,
+        .close-btn:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-blue-100 p-4 sm:p-8">
+    <!-- Admin Icon (more formal SVG) -->
+    <div class="absolute top-4 right-4 text-3xl cursor-pointer text-gray-700 hover:text-gray-900 transition-colors duration-200" id="adminIcon" title="Admin Panel">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+    </div>
+    
+    <!-- Main container -->
+    <div class="container mx-auto bg-slate-200 p-6 sm:p-10 rounded-3xl shadow-2xl">
+
+        <h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-2">Class Topic Tracker</h1>
+        <p class="text-center text-gray-600 mb-6">Add and view your class topics here</p>
+        <p id="userIdDisplay" class="text-xs text-gray-400 text-center mb-4"></p>
+        <p id="loggedInAs" class="text-center text-gray-600 font-bold mb-4"></p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Add Topic Section (Hidden for general users) -->
+            <div id="addTopicSection" class="p-6 bg-green-200 rounded-2xl shadow-inner hidden">
+                <h2 class="text-2xl font-semibold text-green-800 mb-4">Add Topic</h2>
+                <form id="addTopicForm" class="space-y-4">
+                    <div>
+                        <label for="dateInput" class="block text-sm font-medium text-gray-700 mb-1">Select Date</label>
+                        <input type="date" id="dateInput" class="form-input" required>
+                    </div>
+                    <div>
+                        <label for="batchSelect" class="block text-sm font-medium text-gray-700 mb-1">Select Batch</label>
+                        <select id="batchSelect" class="form-select" required></select>
+                    </div>
+                    <div>
+                        <label for="subjectSelect" class="block text-sm font-medium text-gray-700 mb-1">Select Subject</label>
+                        <select id="subjectSelect" class="form-select" required></select>
+                    </div>
+                    <div>
+                        <label for="teacherSelect" class="block text-sm font-medium text-gray-700 mb-1">Select Teacher</label>
+                        <select id="teacherSelect" class="form-select" required></select>
+                    </div>
+                    <div>
+                        <label for="topicTextarea" class="block text-sm font-medium text-gray-700 mb-1">Topic</label>
+                        <textarea id="topicTextarea" rows="4" class="form-textarea" placeholder="Write the topics covered here..." required></textarea>
+                    </div>
+                    <button type="submit" class="w-full btn-primary">Add Topic</button>
+                    <div id="addStatusMessage" class="mt-2 text-center text-sm font-medium text-gray-600"></div>
+                </form>
+            </div>
+
+            <!-- View Topics Section -->
+            <div id="viewTopicsSection" class="p-6 bg-indigo-200 rounded-2xl shadow-inner col-span-1 md:col-span-2">
+                <h2 class="text-2xl font-semibold text-indigo-800 mb-4">View Topics</h2>
+                <div class="space-y-4">
+                    <!-- Date Range Filter -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="viewStartDateInput" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                            <input type="date" id="viewStartDateInput" class="form-input">
+                        </div>
+                        <div>
+                            <label for="viewEndDateInput" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                            <input type="date" id="viewEndDateInput" class="form-input">
+                        </div>
+                    </div>
+                    <!-- Batch, Subject, Teacher Filters -->
+                    <div>
+                        <label for="filterBatchSelect" class="block text-sm font-medium text-gray-700 mb-1">Filter by Batch</label>
+                        <select id="filterBatchSelect" class="form-select"></select>
+                    </div>
+                    <div>
+                        <label for="filterSubjectSelect" class="block text-sm font-medium text-gray-700 mb-1">Filter by Subject</label>
+                        <select id="filterSubjectSelect" class="form-select"></select>
+                    </div>
+                    <div>
+                        <label for="filterTeacherSelect" class="block text-sm font-medium text-gray-700 mb-1">Filter by Teacher</label>
+                        <select id="filterTeacherSelect" class="form-select"></select>
+                    </div>
+                    
+                    <div id="topicList" class="space-y-4">
+                        <p id="initial-message" class="text-center text-gray-500">Please select a Start Date to view topics.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Modal -->
+    <div id="passwordModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h3 class="text-xl font-semibold mb-4">Admin Login</h3>
+            <form id="passwordForm">
+                <div class="mb-4">
+                    <label for="adminName" class="block text-sm font-medium text-gray-700 mb-1">Enter Your Name</label>
+                    <input type="text" id="adminName" class="form-input" required>
+                </div>
+                <div class="mb-4 relative">
+                    <label for="passwordInput" class="block text-sm font-medium text-gray-700 mb-1">Enter Password</label>
+                    <input type="password" id="passwordInput" class="form-input pr-10" required>
+                    <button type="button" class="absolute inset-y-0 right-0 top-6 pr-3 flex items-center" id="togglePassword">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: block;">
+                            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: none;">
+                            <path d="M13.875 18.825A10.027 10.027 0 0112 19c-4.478 0-8.268-2.943-9.542-7 1.274-4.057 5.064-7 9.542-7a9.96 9.96 0 011.875.175m5.52 1.455a10.027 10.027 0 00-6.02 0"></path>
+                            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <button type="submit" class="w-full btn-primary">Log In</button>
+                <p id="passwordStatus" class="mt-2 text-center text-sm font-medium text-red-500"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Panel Modal -->
+    <div id="adminPanelModal" class="modal">
+        <div class="modal-content max-w-lg">
+            <span class="close-btn">&times;</span>
+            <h3 class="text-2xl font-semibold mb-4 text-center flex items-center justify-between">
+                <span>Admin Panel</span>
+                <button id="logoutBtn" class="btn-primary">Logout</button>
+            </h3>
+            <p id="loggedInAsModal" class="text-center text-gray-600 mb-4"></p>
+            <div id="adminControls" class="space-y-6">
+                <!-- Manage Sub-Admins -->
+                <div class="p-4 bg-gray-100 rounded-lg">
+                    <h4 class="text-lg font-semibold mb-2">Manage Sub-Admins</h4>
+                    <ul id="adminList" class="list-disc list-inside space-y-2 mb-4"></ul>
+                    <form id="addSubAdminForm" class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="newSubAdminName" class="form-input flex-grow" placeholder="Enter name of new sub-admin" required>
+                        <button type="submit" class="btn-primary">Add Sub-Admin</button>
+                    </form>
+                    <p id="subAdminStatus" class="mt-2 text-center text-sm font-medium text-gray-600"></p>
+                </div>
+                
+                <!-- Manage Batches -->
+                <div class="p-4 bg-gray-100 rounded-lg">
+                    <h4 class="text-lg font-semibold mb-2">Manage Batches</h4>
+                    <ul id="batchList" class="list-disc list-inside space-y-2 mb-4"></ul>
+                    <form id="addBatchForm" class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="newBatchName" class="form-input flex-grow" placeholder="Enter name of new batch" required>
+                        <button type="submit" class="btn-primary">Add Batch</button>
+                    </form>
+                </div>
+
+                <!-- Manage Subjects -->
+                <div class="p-4 bg-gray-100 rounded-lg">
+                    <h4 class="text-lg font-semibold mb-2">Manage Subjects</h4>
+                    <ul id="subjectList" class="list-disc list-inside space-y-2 mb-4"></ul>
+                    <form id="addSubjectForm" class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="newSubjectName" class="form-input flex-grow" placeholder="Enter name of new subject" required>
+                        <button type="submit" class="btn-primary">Add Subject</button>
+                    </form>
+                </div>
+
+                <!-- Manage Teachers -->
+                <div class="p-4 bg-gray-100 rounded-lg">
+                    <h4 class="text-lg font-semibold mb-2">Manage Teachers</h4>
+                    <ul id="teacherList" class="list-disc list-inside space-y-2 mb-4"></ul>
+                    <form id="addTeacherForm" class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="newTeacherName" class="form-input flex-grow" placeholder="Enter name of new teacher" required>
+                        <select id="teacherSubjectSelect" class="form-select flex-grow" required></select>
+                        <button type="submit" class="btn-primary">Add Teacher</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Custom Message Modal -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="messageCloseBtn">&times;</span>
+            <p id="messageText" class="text-center font-medium"></p>
+        </div>
+    </div>
+</body>
+</html>
